@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: ticketing-platform
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ticketing
+    username: ticketing
+    password: ticketing
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
