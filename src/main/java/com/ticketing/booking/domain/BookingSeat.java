@@ -49,4 +49,18 @@ public class BookingSeat {
     public SeatHoldStatus getStatus() { return status; }
     public Instant getHoldExpiresAt() { return holdExpiresAt; }
 
+    public void confirm() {
+        if (status != SeatHoldStatus.HELD) {
+            throw new IllegalStateException("Only a HELD seat can be confirmed");
+        }
+        this.status = SeatHoldStatus.CONFIRMED;
+    }
+
+    public void release() {
+        if (status == SeatHoldStatus.RELEASED || status == SeatHoldStatus.EXPIRED) {
+            return; // already released, no-op
+        }
+        this.status = SeatHoldStatus.RELEASED;
+    }
+
 }

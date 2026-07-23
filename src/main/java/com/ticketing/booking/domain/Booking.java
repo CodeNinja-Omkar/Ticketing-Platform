@@ -62,6 +62,7 @@ public class Booking {
             throw new IllegalStateException("Only a PENDING booking can be confirmed");
         }
         this.status = BookingStatus.CONFIRMED;
+        seats.forEach(BookingSeat::confirm);
     }
 
     public void softDelete() {
@@ -69,5 +70,12 @@ public class Booking {
             throw new IllegalStateException("Booking is already deleted");
         }
         this.deletedAt = Instant.now();
+    }
+    public void cancel() {
+        if (status == BookingStatus.CANCELLED) {
+            throw new IllegalStateException("Booking is already cancelled");
+        }
+        this.status = BookingStatus.CANCELLED;
+        seats.forEach(BookingSeat::release);
     }
 }
