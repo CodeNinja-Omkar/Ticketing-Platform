@@ -49,7 +49,11 @@ public class BookingService {
         User user = userRepository.findById(request.userId())
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.userId()));
 
-        List<Seat> seats = seatRepository.findAllById(request.seatIds());
+        // PESSIMISTIC_WRITE lock acquired here. A concurrent transaction calling
+        // findAllForUpdate on any of the same seat IDs will block until this
+        // transaction commits or rolls back, closing the race window that used
+        // to exist between this check and the findActiveHolds check below.
+        List<Seat> seats = seatRepository.findAllForUpdate(request.seatIds());
         if (seats.size() != request.seatIds().size()) {
             throw new ResourceNotFoundException("One or more seats do not exist");
         }
