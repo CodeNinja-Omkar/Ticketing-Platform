@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ticketing-postgres
+    environment:
+      POSTGRES_USER: ticketing
+      POSTGRES_PASSWORD: ticketing
+      POSTGRES_DB: ticketing
+    ports:
+      - "5432:5432"
+    # Mirrors the resource limits from the original `docker run` command.
+    # Kept as-is since it was already working within your RAM budget.
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      # Named volume: Postgres data should survive `docker compose down`/`up`,
+      # otherwise every restart forces a full Flyway re-migration + reseed.
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: ticketing-redis
+    ports:
+      - "6379:6379"
+    # TAILORED DECISION (not a default Redis setup): no volume mount here.
+    # This cache is used exclusively for the 30s-TTL seat-availability read
+    # model (see SeatAvailabilityCacheService, Phase 3). There is nothing in
+    # it worth persisting across restarts, and given your machine is already
+    # near RAM/storage capacity during normal dev sessions, skipping
+    # persistence avoids one more thing quietly accumulating on disk.
+    # If a future use case needs durable Redis data, add a named volume then.
+    mem_limit: 128m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres-data:

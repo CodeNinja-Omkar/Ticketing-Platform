@@ -1,4 +1,3 @@
-// Target location in repo: src/test/java/com/ticketing/booking/BookingConcurrencyIT.java
 package com.ticketing.booking;
 
 import com.ticketing.booking.api.BookingRequest;
@@ -38,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * in BookingService.create(). Deliberately bypasses the HTTP layer and drives the
  * service method directly, since the race lives inside the transaction boundary,
  * not in MVC/serialization.
-
+ *
  * IMPORTANT: this test class must NOT be @Transactional. Each simulated caller needs
  * its own transaction — that is the entire point of the test.
  */
@@ -140,5 +139,76 @@ class BookingConcurrencyIT {
         assertEquals(1, activeHolds.size(),
                 "Exactly one active (HELD/CONFIRMED) booking_seats row should exist for this seat, "
                         + "but found " + activeHolds.size() + " - this is the double-booking bug");
+    }
+
+    /**
+     * Verifies that SeatRepository.findAllForUpdate's ORDER BY s.id prevents deadlock
+     * when two concurrent multi-seat bookings request the same two seats in opposite
+     * order. Without consistent lock ordering, caller A locking seat1-then-seat2 while
+     * caller B locks seat2-then-seat1 could each hold one lock while waiting on the
+     * other, producing a genuine Postgres deadlock (terminated with a
+     * PSQLException / CannotAcquireLockException) rather than a clean, sequential
+     * block-and-proceed.
+     */
+    @RepeatedTest(20)
+    void concurrentOverlappingMultiSeatBookings_reversedOrder_doNotDeadlock() throws InterruptedException {
+        Venue venue = venueRepository.save(new Venue("Deadlock Test Arena", "Pune", 500));
+        Event event = eventRepository.save(new Event("Deadlock Test Concert", venue, Instant.now().plusSeconds(86_400)));
+        Seat seatA = seatRepository.save(new Seat(event, "D1", new java.math.BigDecimal("50.00")));
+        Seat seatB = seatRepository.save(new Seat(event, "D2", new java.math.BigDecimal("50.00")));
+
+        int callers = 2;
+        ExecutorService executor = Executors.newFixedThreadPool(callers);
+        CountDownLatch readyLatch = new CountDownLatch(callers);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger conflictCount = new AtomicInteger(0);
+
+        List<UUID> orderForCallerA = List.of(seatA.getId(), seatB.getId());
+        List<UUID> orderForCallerB = List.of(seatB.getId(), seatA.getId());
+
+        List<Future<?>> futures = List.of(
+                executor.submit(() -> runBookingAttempt(userAId, orderForCallerA, readyLatch, startLatch, successCount, conflictCount)),
+                executor.submit(() -> runBookingAttempt(userBId, orderForCallerB, readyLatch, startLatch, successCount, conflictCount))
+        );
+
+        readyLatch.await(5, TimeUnit.SECONDS);
+        startLatch.countDown();
+
+        for (Future<?> future : futures) {
+            try {
+                future.get(10, TimeUnit.SECONDS);
+            } catch (ExecutionException | TimeoutException e) {
+                throw new RuntimeException(
+                        "Booking task failed unexpectedly - possible deadlock or unhandled exception", e);
+            }
+        }
+        executor.shutdown();
+
+        assertEquals(1, successCount.get(),
+                "Exactly one of the two overlapping multi-seat bookings should have succeeded");
+        assertEquals(1, conflictCount.get(),
+                "Exactly one of the two overlapping multi-seat bookings should have been rejected");
+    }
+
+    private Void runBookingAttempt(
+            UUID userId,
+            List<UUID> seatIds,
+            CountDownLatch readyLatch,
+            CountDownLatch startLatch,
+            AtomicInteger successCount,
+            AtomicInteger conflictCount) {
+        readyLatch.countDown();
+        try {
+            startLatch.await();
+            bookingService.create(new BookingRequest(userId, seatIds));
+            successCount.incrementAndGet();
+        } catch (ConflictException expected) {
+            conflictCount.incrementAndGet();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+        return null;
     }
 }
