@@ -3,6 +3,7 @@ package com.ticketing.booking.cache;
 
 import com.redis.testcontainers.RedisContainer;
 import com.ticketing.booking.api.BookingRequest;
+import com.ticketing.booking.api.BookingResponse;
 import com.ticketing.booking.service.BookingService;
 import com.ticketing.catalog.domain.Event;
 import com.ticketing.catalog.domain.Seat;
@@ -180,5 +181,19 @@ class SeatAvailabilityCacheIT {
         assertTrue(redisTemplate.hasKey(cacheKey),
                 "cache must NOT be evicted when the booking transaction rolled back - "
                         + "this is the core AFTER_COMMIT guarantee being verified");
+    }
+    @Test
+    void bookingCancel_afterCommit_evictsCache() {
+        BookingResponse booking = bookingService.create(new BookingRequest(userId, List.of(seatId)));
+
+        // create() already evicted the cache as a side effect - re-warm it here
+        // so this test isolates cancel()'s eviction specifically, not create()'s.
+        cacheService.getOrLoad(eventId);
+        assertTrue(redisTemplate.hasKey(cacheKey), "precondition: cache warmed before cancel");
+
+        bookingService.cancel(booking.id());
+
+        assertFalse(redisTemplate.hasKey(cacheKey),
+                "cache should be evicted immediately after the cancel transaction commits");
     }
 }
