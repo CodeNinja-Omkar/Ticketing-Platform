@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -57,9 +58,11 @@ public class SeatAvailabilityCacheService {
     }
 
     private List<SeatAvailabilityView> load(UUID eventId) {
-        return queryRepository.findAvailabilityForEvent(eventId, Instant.now()).stream()
-                .map(SeatAvailabilityView::from)
-                .toList();
+        return new ArrayList<>(
+                queryRepository.findAvailabilityForEvent(eventId, Instant.now()).stream()
+                        .map(SeatAvailabilityView::from)
+                        .toList()
+        );
     }
 
     private String cacheKey(UUID eventId) {
