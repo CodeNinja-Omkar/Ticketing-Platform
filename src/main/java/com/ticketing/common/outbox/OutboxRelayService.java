@@ -1,5 +1,7 @@
 package com.ticketing.common.outbox;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -28,7 +30,8 @@ import java.util.List;
 @Service
 public class OutboxRelayService {
 
-    private static final String TOPIC = "domain-events";
+    private static final Logger log = LoggerFactory.getLogger(OutboxRelayService.class);
+
     private static final int BATCH_SIZE = 20;
     private static final int MAX_RETRIES = 3;
     private static final Duration BASE_BACKOFF = Duration.ofSeconds(2);
@@ -49,8 +52,11 @@ public class OutboxRelayService {
         List<OutboxEvent> batch = outboxEventRepository.pollBatch(Instant.now(), BATCH_SIZE);
 
         if (batch.isEmpty()) {
+            log.debug("Outbox poll: no eligible rows");
             return;
         }
+
+        log.info("Outbox poll: {} row(s) eligible for publishing", batch.size());
 
         for (OutboxEvent outboxEvent : batch) {
             publishOne(outboxEvent);
@@ -61,10 +67,13 @@ public class OutboxRelayService {
 
     private void publishOne(OutboxEvent outboxEvent) {
         try {
-            kafkaTemplate.send(TOPIC, outboxEvent.getEventType(), outboxEvent.getPayload()).get();
+            kafkaTemplate.send(KafkaTopicConfig.DOMAIN_EVENTS_TOPIC, outboxEvent.getEventType(), outboxEvent.getPayload()).get();
             outboxEvent.markPublished();
+            log.info("Published outbox event {} (type={})", outboxEvent.getId(), outboxEvent.getEventType());
         } catch (Exception ex) {
             outboxEvent.recordFailure(ex.getMessage(), MAX_RETRIES, BASE_BACKOFF);
+            log.warn("Failed to publish outbox event {} (attempt {}): {}",
+                    outboxEvent.getId(), outboxEvent.getRetryCount(), ex.getMessage());
         }
     }
 }

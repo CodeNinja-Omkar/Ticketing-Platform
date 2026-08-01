@@ -44,7 +44,11 @@ services:
         max-file: "3"
 
   kafka:
-    image: apache/kafka:3.9.0
+    # 3.9.0 has a confirmed bug (KAFKA-18281): it incorrectly validates the
+    # non-advertised CONTROLLER listener as if it needed to be routable,
+    # rejecting the standard 0.0.0.0 bind address with a startup crash.
+    # Fixed in 3.9.1 / 4.0.0 onward.
+    image: apache/kafka:4.3.1
     container_name: ticketing-kafka
     ports:
       - "9092:9092"
