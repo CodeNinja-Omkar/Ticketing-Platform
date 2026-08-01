@@ -43,5 +43,49 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: ticketing-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      # KRaft mode: this single container acts as both broker and controller.
+      # No Zookeeper container needed — KRaft replaced it as Kafka's cluster
+      # coordination mechanism and is the standard for new setups.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@ticketing-kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Two listeners on one broker: PLAINTEXT for clients (your Spring app,
+      # port 9092), CONTROLLER for internal KRaft coordination (port 9093,
+      # never touched by application code).
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      # ADVERTISED_LISTENERS is what Kafka tells clients to actually connect
+      # to. localhost:9092 is correct because your Spring app runs on the
+      # host machine, not inside this compose network, connecting in via the
+      # published port mapping above.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Single-broker dev setup: replication factor of anything above 1 would
+      # fail outright, since there is only one broker to replicate to.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # Caps the JVM heap explicitly rather than trusting Kafka's default
+      # heap sizing, which assumes more headroom than this machine has to
+      # spare alongside Postgres and Redis already running.
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
+    # Kafka is a JVM process with its own broker overhead on top of heap, so
+    # this needs more headroom than the heap setting alone suggests — set
+    # deliberately above KAFKA_HEAP_OPTS rather than equal to it.
+    mem_limit: 1g
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   postgres-data:
